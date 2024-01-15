@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -22,86 +22,81 @@ func ReadPBM(filename string) (*PBM, error) {
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	reader := bufio.NewReader(file)
 
 	// Read magic number
-	magicNumber := readNonCommentLine(scanner)
+	magicNumber, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("error reading magic number: %v", err)
+	}
+	magicNumber = strings.TrimSpace(magicNumber)
+	if magicNumber != "P1" && magicNumber != "P4" {
+		return nil, fmt.Errorf("invalid magic number: %s", magicNumber)
+	}
 
-	// Read width and height
-	width, height := 0, 0
-	fmt.Sscanf(readNonCommentLine(scanner), "%d %d", &width, &height)
+	// Read dimensions
+	dimensions, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("error reading dimensions: %v", err)
+	}
+	var width, height int
+	_, err = fmt.Sscanf(strings.TrimSpace(dimensions), "%d %d", &width, &height)
+	if err != nil {
+		return nil, fmt.Errorf("invalid dimensions: %v", err)
+	}
 
-	// Read image data
 	data := make([][]bool, height)
+
+	for i := range data {
+		data[i] = make([]bool, width)
+	}
+
 	if magicNumber == "P1" {
-		// P1 format (ASCII)
-		for i := 0; i < height && scanner.Scan(); i++ {
-			line := strings.Fields(scanner.Text()) // Split the line into fields
-			data[i] = make([]bool, width)
-			for j, field := range line {
-				if j >= width {
-					return nil, fmt.Errorf("Index out of range")
+		// Read P1 format (ASCII)
+		for y := 0; y < height; y++ {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return nil, fmt.Errorf("error reading data at row %d: %v", y, err)
+			}
+			fields := strings.Fields(line)
+			for x, field := range fields {
+				if x >= width {
+					return nil, fmt.Errorf("index out of range at row %d", y)
 				}
-				if field == "1" {
-					data[i][j] = true
-				} else if field == "0" {
-					data[i][j] = false
-				}
+				data[y][x] = field == "1"
 			}
 		}
+
 	} else if magicNumber == "P4" {
-		// P4 format (binary)
-		for i := 0; i < height && scanner.Scan(); i++ {
-			line := scanner.Text()
-			data[i] = make([]bool, width)
-
-			for j := 0; j < width/8; j++ { // Modifier l'indice ici
-				// Read rune by rune
-				if j < len(line) {
-					char := line[j]
-
-					// Convert to ASCII
-					asciiValue := int(char)
-
-					// Convert ASCII to hex
-					hexValue := fmt.Sprintf("%02X", asciiValue)
-
-					// Convert hex to binary
-					binaryValue, err := strconv.ParseUint(hexValue, 16, 8)
-					fmt.Println(binaryValue)
-					if err != nil {
-						// Handle error
-						fmt.Println("Error:", err)
-						return nil, err
-					}
-
-					// Set the corresponding bits in data
-					for k := 0; k < 8; k++ {
-						data[i][j*8+k] = (binaryValue>>uint(7-k))&1 == 1
-					}
-				} else {
-					// Padding case
-					data[i][j*8] = false
+		// Read P4 format (binary)
+		expectedBytesPerRow := (width + 7) / 8
+		for y := 0; y < height; y++ {
+			row := make([]byte, expectedBytesPerRow)
+			n, err := reader.Read(row)
+			if err != nil {
+				if err == io.EOF {
+					return nil, fmt.Errorf("unexpected end of file at row %d", y)
 				}
+				return nil, fmt.Errorf("error reading pixel data at row %d: %v", y, err)
+			}
+			if n < expectedBytesPerRow {
+				return nil, fmt.Errorf("unexpected end of file at row %d, expected %d bytes, got %d", y, expectedBytesPerRow, n)
+			}
+
+			for x := 0; x < width; x++ {
+				byteIndex := x / 8
+				bitIndex := 7 - (x % 8)
+
+				// Convert ASCII to decimal and extract the bit
+				decimalValue := int(row[byteIndex])
+				bitValue := (decimalValue >> bitIndex) & 1
+
+				data[y][x] = bitValue != 0
 			}
 		}
-
-	} else {
-		return nil, fmt.Errorf("Invalid magic number")
 	}
 
 	return &PBM{data, width, height, magicNumber}, nil
-}
-
-// readNonCommentLine reads the next non-comment line from the scanner.
-func readNonCommentLine(scanner *bufio.Scanner) string {
-	for scanner.Scan() {
-		line := scanner.Text()
-		if len(line) > 0 && line[0] != '#' {
-			return line
-		}
-	}
-	return ""
 }
 
 // Size returns the width and height of the image.
@@ -135,15 +130,22 @@ func (pbm *PBM) Save(filename string) error {
 	fmt.Fprintf(file, "%s\n%d %d\n", pbm.magicNumber, pbm.width, pbm.height)
 
 	// Write image data
-	for _, row := range pbm.data {
-		for _, pixel := range row {
-			if pixel {
+	for i := 0; i < pbm.height; i++ {
+		for j := 0; j < pbm.width; j++ {
+			// Write the binary value of the pixel
+			if pbm.data[i][j] {
 				fmt.Fprint(file, "1")
 			} else {
 				fmt.Fprint(file, "0")
 			}
+
+			// Add a space after each pixel, except the last one in a row
+			if j < pbm.width-1 {
+				fmt.Fprint(file, " ")
+			}
 		}
-		fmt.Fprintln(file) // Add a newline after each row
+		// Add a newline after each row
+		fmt.Fprintln(file)
 	}
 
 	return nil
@@ -179,21 +181,15 @@ func (pbm *PBM) SetMagicNumber(magicNumber string) {
 	pbm.magicNumber = magicNumber
 }
 
-func main() {
-	// Example usage
-	pbm, err := ReadPBM("p1.pbm")
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
+func (pbm *PBM) PrintData() {
+	for i := 0; i < pbm.height; i++ {
+		for j := 0; j < pbm.width; j++ {
+			if pbm.data[i][j] {
+				fmt.Print("1 ")
+			} else {
+				fmt.Print("0 ")
+			}
+		}
+		fmt.Println() // Nouvelle ligne après chaque ligne d'image
 	}
-	pbm.Save("original_output.pbm") // Save original image
-
-	pbm.Invert()                    // Invert colors
-	pbm.Save("inverted_output.pbm") // Save inverted image
-
-	pbm.Flip()                     // Flip horizontally
-	pbm.Save("flipped_output.pbm") // Save flipped image
-
-	pbm.Flop()                     // Flop vertically
-	pbm.Save("flopped_output.pbm") // Save flopped image
 }
