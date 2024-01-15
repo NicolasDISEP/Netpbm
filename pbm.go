@@ -1,9 +1,11 @@
-package netpbm
+package Netpbm
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -13,7 +15,6 @@ type PBM struct {
 	magicNumber   string
 }
 
-// ReadPBM reads a PBM image from a file and returns a struct that represents the image.
 func ReadPBM(filename string) (*PBM, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -38,29 +39,53 @@ func ReadPBM(filename string) (*PBM, error) {
 			line := strings.Fields(scanner.Text()) // Split the line into fields
 			data[i] = make([]bool, width)
 			for j, field := range line {
+				if j >= width {
+					return nil, fmt.Errorf("Index out of range")
+				}
 				if field == "1" {
 					data[i][j] = true
 				} else if field == "0" {
 					data[i][j] = false
+				}
+			}
+		}
+	} else if magicNumber == "P4" {
+		// P4 format (binary)
+		for i := 0; i < height && scanner.Scan(); i++ {
+			line := scanner.Text()
+			data[i] = make([]bool, width)
+
+			for j := 0; j < width/8; j++ { // Modifier l'indice ici
+				// Read rune by rune
+				if j < len(line) {
+					char := line[j]
+
+					// Convert to ASCII
+					asciiValue := int(char)
+
+					// Convert ASCII to hex
+					hexValue := fmt.Sprintf("%02X", asciiValue)
+
+					// Convert hex to binary
+					binaryValue, err := strconv.ParseUint(hexValue, 16, 8)
+					fmt.Println(binaryValue)
+					if err != nil {
+						// Handle error
+						fmt.Println("Error:", err)
+						return nil, err
+					}
+
+					// Set the corresponding bits in data
+					for k := 0; k < 8; k++ {
+						data[i][j*8+k] = (binaryValue>>uint(7-k))&1 == 1
+					}
 				} else {
-					return nil, fmt.Errorf("Invalid character in image data")
+					// Padding case
+					data[i][j*8] = false
 				}
 			}
 		}
 
-	} else if magicNumber == "P4" {
-		// For P4 (binary), read bytes
-		for i := 0; i < height; i++ {
-			scanner.Scan()
-			line := scanner.Text()
-			data[i] = make([]bool, width)
-			for j := 0; j < width; j++ {
-				byteIndex := j / 8
-				bitIndex := 7 - (j % 8)
-				bit := (line[byteIndex] >> uint(bitIndex)) & 1
-				data[i][j] = bit == 1
-			}
-		}
 	} else {
 		return nil, fmt.Errorf("Invalid magic number")
 	}
@@ -72,8 +97,7 @@ func ReadPBM(filename string) (*PBM, error) {
 func readNonCommentLine(scanner *bufio.Scanner) string {
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Check if the line is not a comment
-		if !strings.HasPrefix(line, "#") {
+		if len(line) > 0 && line[0] != '#' {
 			return line
 		}
 	}
@@ -97,6 +121,10 @@ func (pbm *PBM) Set(x, y int, value bool) {
 
 // Save saves the PBM image to a file and returns an error if there was a problem.
 func (pbm *PBM) Save(filename string) error {
+	if pbm == nil {
+		return errors.New("cannot save a nil PBM")
+	}
+
 	file, err := os.Create(filename)
 	if err != nil {
 		return err
