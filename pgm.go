@@ -29,7 +29,7 @@ func ReadPGM(filename string) (*PGM, error) {
 	scanner.Scan()
 	magicNumber := scanner.Text()
 
-	// Read comment lines
+	// Read comment lines and ignore them
 	for strings.HasPrefix(scanner.Text(), "#") {
 		scanner.Scan()
 	}
@@ -152,17 +152,3 @@ func (pgm *PGM) ToPBM() *PBM {
 
 	return nil
 }
-
-/*
-func main() {
-	pgm, err := ReadPGM("example.pgm")
-	if err != nil {
-		fmt.Println("Error reading PGM:", err)
-		return
-	}
-
-	width, height := pgm.Size()
-	fmt.Printf("Image size: %d x %d\n", width, height)
-
-	// Perform other operations as needed.
-}*/
