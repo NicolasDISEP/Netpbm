@@ -84,12 +84,12 @@ func ReadPBM(filename string) (*PBM, error) {
 			}
 
 			for x := 0; x < width; x++ {
-				byteIndex := x / 8
-				bitIndex := 7 - (x % 8)
+				byteIndex := x / 8      // to convert octect
+				bitIndex := 7 - (x % 8) // to do a mask for
 
 				// Convert ASCII to decimal and extract the bit
-				decimalValue := int(row[byteIndex])
-				bitValue := (decimalValue >> bitIndex) & 1
+				decimalValue := int(row[byteIndex])        // extract the decimal value
+				bitValue := (decimalValue >> bitIndex) & 1 // (decimalValue >> bitIndex) a bit shift to the right
 
 				data[y][x] = bitValue != 0
 			}
@@ -114,7 +114,6 @@ func (pbm *PBM) Set(x, y int, value bool) {
 	pbm.data[y][x] = value
 }
 
-// Save saves the PBM image to a file and returns an error if there was a problem.
 func (pbm *PBM) Save(filename string) error {
 	if pbm == nil {
 		return errors.New("cannot save a nil PBM")
@@ -129,7 +128,18 @@ func (pbm *PBM) Save(filename string) error {
 	// Write magic number, width, and height
 	fmt.Fprintf(file, "%s\n%d %d\n", pbm.magicNumber, pbm.width, pbm.height)
 
-	// Write image data
+	// Choose the appropriate method based on the magic number
+	if pbm.magicNumber == "P1" {
+		return pbm.saveP1(file)
+	} else if pbm.magicNumber == "P4" {
+		return pbm.saveP4(file)
+	} else {
+		return fmt.Errorf("unsupported magic number: %s", pbm.magicNumber)
+	}
+}
+
+// saveP1 saves the PBM image in P1 format (ASCII).
+func (pbm *PBM) saveP1(file *os.File) error {
 	for i := 0; i < pbm.height; i++ {
 		for j := 0; j < pbm.width; j++ {
 			// Write the binary value of the pixel
@@ -147,7 +157,26 @@ func (pbm *PBM) Save(filename string) error {
 		// Add a newline after each row
 		fmt.Fprintln(file)
 	}
+	return nil
+}
 
+// saveP4 saves the PBM image in P4 format (binary).
+func (pbm *PBM) saveP4(file *os.File) error {
+	expectedBytesPerRow := (pbm.width + 7) / 8
+	for y := 0; y < pbm.height; y++ {
+		row := make([]byte, expectedBytesPerRow)
+		for x := 0; x < pbm.width; x++ {
+			byteIndex := x / 8
+			bitIndex := 7 - (x % 8)
+			if pbm.data[y][x] {
+				row[byteIndex] |= 1 << bitIndex
+			}
+		}
+		_, err := file.Write(row)
+		if err != nil {
+			return fmt.Errorf("error writing pixel data at row %d: %v", y, err)
+		}
+	}
 	return nil
 }
 
