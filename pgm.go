@@ -44,6 +44,9 @@ func ReadPGM(filename string) (*PGM, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid dimensions: %v", err)
 	}
+	if width <= 0 || height <= 0 {
+		return nil, fmt.Errorf("invalid dimensions: width and height must be positive")
+	}
 
 	// Read max value
 	maxValue, err := reader.ReadString('\n')
@@ -154,6 +157,11 @@ func (pgm *PGM) Save(filename string) error {
 	if err != nil {
 		return fmt.Errorf("error writing max value: %v", err)
 	}
+	for _, row := range pgm.data {
+		if len(row) != pgm.width {
+			return fmt.Errorf("inconsistent row length in data")
+		}
+	}
 
 	// Write image data
 	if pgm.magicNumber == "P2" {
@@ -243,18 +251,27 @@ func (pgm *PGM) SetMagicNumber(magicNumber string) {
 	pgm.magicNumber = magicNumber
 }
 
-// SetMaxValue sets the max value of the PGM image.
 func (pgm *PGM) SetMaxValue(maxValue uint8) {
-	pgm.max = int(maxValue)
 	for y := 0; y < pgm.height; y++ {
 		for x := 0; x < pgm.width; x++ {
-			pgm.data[y][x] = uint8(int(pgm.data[y][x]) * 255 / pgm.max)
+			// Scale the pixel values based on the new max value
+			scaledValue := float64(pgm.data[y][x]) * float64(maxValue) / float64(pgm.max)
+			// Round to the nearest integer
+			newValue := uint8(scaledValue)
+			pgm.data[y][x] = newValue
 		}
 	}
+
+	// Update the max value
+	pgm.max = int(maxValue)
 }
 
 // Rotate90CW rotates the PGM image 90° clockwise.
 func (pgm *PGM) Rotate90CW() {
+	if pgm.width <= 0 || pgm.height <= 0 {
+		return
+	}
+
 	newData := make([][]uint8, pgm.width)
 	for i := 0; i < pgm.width; i++ {
 		newData[i] = make([]uint8, pgm.height)
@@ -276,10 +293,9 @@ func (pgm *PGM) ToPBM() *PBM {
 	for y := 0; y < pgm.height; y++ {
 		pbm.data[y] = make([]bool, pgm.width)
 		for x := 0; x < pgm.width; x++ {
-			pbm.data[y][x] = pgm.data[y][x] > uint8(pgm.max/2)
+			pbm.data[y][x] = pgm.data[y][x] < uint8(pgm.max/2)
 		}
 	}
-
 	return pbm
 }
 
