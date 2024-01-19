@@ -12,7 +12,7 @@ type PGM struct {
 	data          [][]uint8
 	width, height int
 	magicNumber   string
-	max           int
+	max           uint8
 }
 
 func ReadPGM(filename string) (*PGM, error) {
@@ -54,7 +54,7 @@ func ReadPGM(filename string) (*PGM, error) {
 		return nil, fmt.Errorf("error reading max value: %v", err)
 	}
 	maxValue = strings.TrimSpace(maxValue)
-	var max int
+	var max uint8
 	_, err = fmt.Sscanf(maxValue, "%d", &max)
 	if err != nil {
 		return nil, fmt.Errorf("invalid max value: %v", err)
@@ -263,7 +263,7 @@ func (pgm *PGM) SetMaxValue(maxValue uint8) {
 	}
 
 	// Update the max value
-	pgm.max = int(maxValue)
+	pgm.max = maxValue
 }
 
 // Rotate90CW rotates the PGM image 90° clockwise.

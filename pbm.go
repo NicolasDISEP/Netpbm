@@ -69,28 +69,42 @@ func ReadPBM(filename string) (*PBM, error) {
 
 	} else if magicNumber == "P4" {
 		// Read P4 format (binary)
+
+		// Calculate the expected number of bytes per row for P4 format
 		expectedBytesPerRow := (width + 7) / 8
+
+		// Iterate over each row in the image
 		for y := 0; y < height; y++ {
+			// Read a row of bytes from the input file.
 			row := make([]byte, expectedBytesPerRow)
 			n, err := reader.Read(row)
 			if err != nil {
+				// Handle the case where unexpected end of file occurs
 				if err == io.EOF {
 					return nil, fmt.Errorf("unexpected end of file at row %d", y)
 				}
+				// Handle other errors while reading pixel data.
 				return nil, fmt.Errorf("error reading pixel data at row %d: %v", y, err)
 			}
+
+			// Check if the actual number of bytes read matches the expected number.
 			if n < expectedBytesPerRow {
 				return nil, fmt.Errorf("unexpected end of file at row %d, expected %d bytes, got %d", y, expectedBytesPerRow, n)
 			}
 
+			// Iterate over each pixel in the row
 			for x := 0; x < width; x++ {
-				byteIndex := x / 8      // to convert octect
-				bitIndex := 7 - (x % 8) // to do a mask for
+				// Calculate the index of the byte containing the current pixel
+				byteIndex := x / 8
 
-				// Convert ASCII to decimal and extract the bit
-				decimalValue := int(row[byteIndex])        // extract the decimal value
-				bitValue := (decimalValue >> bitIndex) & 1 // (decimalValue >> bitIndex) a bit shift to the right
+				// Calculate the bit index within the byte for the current pixel
+				bitIndex := 7 - (x % 8)
 
+				// Extract the bit value from the byte using a bitwise AND operation
+				// Shift the decimal value to the right by the bit index, then perform a bitwise AND with 1
+				bitValue := (int(row[byteIndex]) >> bitIndex) & 1
+
+				// Set the corresponding pixel in the image data based on the extracted bit value
 				data[y][x] = bitValue != 0
 			}
 		}
@@ -99,17 +113,17 @@ func ReadPBM(filename string) (*PBM, error) {
 	return &PBM{data, width, height, magicNumber}, nil
 }
 
-// Size returns the width and height of the image.
+// Size returns the width and height of the image
 func (pbm *PBM) Size() (int, int) {
 	return pbm.width, pbm.height
 }
 
-// At returns the value of the pixel at (x, y).
+// At returns the value of the pixel at (x, y)
 func (pbm *PBM) At(x, y int) bool {
 	return pbm.data[y][x]
 }
 
-// Set sets the value of the pixel at (x, y).
+// Set sets the value of the pixel at (x, y)
 func (pbm *PBM) Set(x, y int, value bool) {
 	pbm.data[y][x] = value
 }
@@ -138,7 +152,7 @@ func (pbm *PBM) Save(filename string) error {
 	}
 }
 
-// saveP1 saves the PBM image in P1 format (ASCII).
+// saveP1 saves the PBM image in P1 format (ASCII)
 func (pbm *PBM) saveP1(file *os.File) error {
 	for i := 0; i < pbm.height; i++ {
 		for j := 0; j < pbm.width; j++ {
@@ -160,7 +174,7 @@ func (pbm *PBM) saveP1(file *os.File) error {
 	return nil
 }
 
-// saveP4 saves the PBM image in P4 format (binary).
+// saveP4 saves the PBM image in P4 format (binary)
 func (pbm *PBM) saveP4(file *os.File) error {
 	expectedBytesPerRow := (pbm.width + 7) / 8
 	for y := 0; y < pbm.height; y++ {
@@ -219,6 +233,6 @@ func (pbm *PBM) PrintData() {
 				fmt.Print("0 ")
 			}
 		}
-		fmt.Println() // Nouvelle ligne après chaque ligne d'image
+		fmt.Println()
 	}
 }

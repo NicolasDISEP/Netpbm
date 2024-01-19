@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 )
@@ -12,7 +13,7 @@ type PPM struct {
 	data          [][]Pixel
 	width, height int
 	magicNumber   string
-	max           int
+	max           uint8
 }
 
 type Pixel struct {
@@ -59,7 +60,7 @@ func ReadPPM(filename string) (*PPM, error) {
 		return nil, fmt.Errorf("error reading max value: %v", err)
 	}
 	maxValue = strings.TrimSpace(maxValue)
-	var max int
+	var max uint8
 	_, err = fmt.Sscanf(maxValue, "%d", &max)
 	if err != nil {
 		return nil, fmt.Errorf("invalid max value: %v", err)
@@ -243,7 +244,7 @@ func (ppm *PPM) SetMaxValue(maxValue uint8) {
 	}
 
 	// Update the max value
-	ppm.max = int(maxValue)
+	ppm.max = maxValue
 }
 
 func (ppm *PPM) Rotate90CW() {
@@ -345,39 +346,51 @@ func (ppm *PPM) SetPixel(p Point, color Pixel) {
 
 // DrawLine draws a line between two points.
 
+// DrawLine uses Bresenham's line algorithm to draw a line between two points.
+// Bresenham's algorithm efficiently rasterizes a line on a grid of pixels.
 func (ppm *PPM) DrawLine(p1, p2 Point, color Pixel) {
 	// Bresenham's line algorithm
+
+	// Extract coordinates of the two points.
 	x1, y1 := p1.X, p1.Y
 	x2, y2 := p2.X, p2.Y
 
+	// Calculate differences in x and y coordinates.
 	dx := abs(x2 - x1)
 	dy := abs(y2 - y1)
 
+	// Determine the direction of the line along the x-axis.
 	var sx, sy int
-
 	if x1 < x2 {
 		sx = 1
 	} else {
 		sx = -1
 	}
 
+	// Determine the direction of the line along the y-axis.
 	if y1 < y2 {
 		sy = 1
 	} else {
 		sy = -1
 	}
 
+	// Initialize the error term.
 	err := dx - dy
 
+	// Iterate through the points along the line using Bresenham's algorithm.
 	for {
+		// Set the pixel at the current point on the line.
 		ppm.SetPixel(Point{x1, y1}, color)
 
+		// Check if the end point of the line is reached.
 		if x1 == x2 && y1 == y2 {
 			break
 		}
 
+		// Calculate the doubled error term.
 		e2 := 2 * err
 
+		// Update the error term based on the decision parameter.
 		if e2 > -dy {
 			err -= dy
 			x1 += sx
@@ -410,28 +423,97 @@ func (ppm *PPM) DrawRectangle(p1 Point, width, height int, color Pixel) {
 	ppm.DrawLine(p4, p1, color)
 }
 
-// DrawFilledRectangle draws a filled rectangle.
 func (ppm *PPM) DrawFilledRectangle(p1 Point, width, height int, color Pixel) {
-	// Iterate through each pixel in the rectangle and set its color.
-	for y := p1.Y; y < p1.Y+height; y++ {
-		for x := p1.X; x < p1.X+width; x++ {
-			ppm.SetPixel(Point{x, y}, color)
-		}
+	// Ensure positive width and height.
+	if width <= 0 || height <= 0 {
+		return
+	}
+
+	for w := width; w > 0; w-- {
+		// Draw a rectangle with reduced width.
+		ppm.DrawRectangle(p1, w, height, color)
+
+		// Move the starting point for the next iteration.
+		p1.X++
 	}
 }
 
-// DrawCircle draws a circle.
-func (ppm *PPM) DrawCircle(center Point, radius int, color Pixel) {
-	// ...
-	// Implement drawing a circle using a suitable algorithm.
-	// ...
+func (ppm *PPM) setPixel(x, y int, color Pixel) {
+	if x >= 0 && x < ppm.width && y >= 0 && y < ppm.height {
+		ppm.data[y][x] = color
+	}
 }
 
-// DrawFilledCircle draws a filled circle.
+func (ppm *PPM) DrawCircle(center Point, radius int, color Pixel) {
+	// converts polar coordinates to Cartesian coordinates
+
+	// Ensure non-negative radius.
+	if radius < 0 {
+		return
+	}
+	// -0.01 because 1 fucking pixel is not correct place
+	for theta := -0.01; theta <= 1.99*math.Pi; theta += (1.0 / float64(radius)) {
+		x := center.X + int(float64(radius)*math.Cos(theta))
+		y := center.Y + int(float64(radius)*math.Sin(theta))
+
+		ppm.setPixel(x, y, color)
+	}
+}
+
 func (ppm *PPM) DrawFilledCircle(center Point, radius int, color Pixel) {
-	// ...
-	// Implement drawing a filled circle using a suitable algorithm.
-	// ...
+	// Assurez-vous que le rayon est non négatif.
+	if radius < 0 {
+		return
+	}
+
+	// Remplir le point central du cercle
+	ppm.setPixel(center.X, center.Y, color)
+
+	// -0.01 parce qu'un putain de pixel n'est pas à la bonne place
+	for theta := -0.01; theta <= 1.99*math.Pi; theta += (1.0 / float64(radius)) {
+		x := center.X + int(float64(radius)*math.Cos(theta))
+		y := center.Y + int(float64(radius)*math.Sin(theta))
+
+		// Remplir la ligne horizontale du centre aux bords du cercle
+		for xi := x; xi < center.X; xi++ {
+			ppm.setPixel(xi, y, color)
+			ppm.setPixel(center.X*2-xi, y, color)
+		}
+
+		// Remplir la ligne verticale du centre aux bords du cercle
+		for yi := y; yi < center.Y; yi++ {
+			ppm.setPixel(x, yi, color)
+			ppm.setPixel(x, center.Y*2-yi, color)
+		}
+	}
+}
+func (ppm *PPM) drawHorizontalLine(x1, x2, y int, color Pixel) {
+	// Ensure valid y-coordinate.
+	if y < 0 || y >= ppm.height {
+		return
+	}
+
+	// Ensure x1 is less than or equal to x2.
+	if x1 > x2 {
+		x1, x2 = x2, x1
+	}
+
+	// Clip x-coordinates to the image bounds.
+	x1 = clamp(x1, 0, ppm.width-1)
+	x2 = clamp(x2, 0, ppm.width-1)
+
+	for x := x1; x <= x2; x++ {
+		ppm.setPixel(x, y, color)
+	}
+}
+func clamp(value, min, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 // DrawTriangle draws a triangle.
@@ -442,11 +524,34 @@ func (ppm *PPM) DrawTriangle(p1, p2, p3 Point, color Pixel) {
 	ppm.DrawLine(p3, p1, color)
 }
 
-// DrawFilledTriangle draws a filled triangle.
 func (ppm *PPM) DrawFilledTriangle(p1, p2, p3 Point, color Pixel) {
-	// ...
-	// Implement drawing a filled triangle using a suitable algorithm.
-	// ...
+	var Corners [3]Point
+	// Sort the vertices based on Y-coordinate.
+	if p1.Y <= p2.Y && p1.Y <= p3.Y {
+		Corners[0], Corners[1], Corners[2] = p1, p2, p3
+	} else if p2.Y <= p1.Y && p2.Y <= p3.Y {
+		Corners[0], Corners[1], Corners[2] = p2, p1, p3
+	} else {
+		Corners[0], Corners[1], Corners[2] = p3, p1, p2
+	}
+	// Calculate slopes for the two edges of the triangle.
+	slope1 := float64(Corners[2].X-Corners[0].X) / float64(Corners[2].Y-Corners[0].Y)
+	slope2 := float64(Corners[2].X-Corners[1].X) / float64(Corners[2].Y-Corners[1].Y)
+
+	x1 := float64(Corners[0].X)
+	x2 := float64(Corners[1].X)
+
+	for y := Corners[0].Y; y <= Corners[1].Y; y++ {
+		ppm.DrawLine(Point{int(x1 + 0.5), y}, Point{int(x2 + 0.5), y}, color)
+		x1 += slope1
+		x2 += slope2
+	}
+	x2 = float64(Corners[1].X)
+	for y := Corners[1].Y + 1; y <= Corners[2].Y; y++ {
+		ppm.DrawLine(Point{int(x1 + 0.5), y}, Point{int(x2 + 0.5), y}, color)
+		x1 += slope1
+		x2 += slope2
+	}
 }
 
 // DrawPolygon draws a polygon.
@@ -459,24 +564,63 @@ func (ppm *PPM) DrawPolygon(points []Point, color Pixel) {
 	ppm.DrawLine(points[len(points)-1], points[0], color)
 }
 
-// DrawFilledPolygon draws a filled polygon.
 func (ppm *PPM) DrawFilledPolygon(points []Point, color Pixel) {
-	// ...
-	// Implement drawing a filled polygon using a suitable algorithm.
-	// ...
-}
+	minY := points[0].Y
+	maxY := points[0].Y
 
-// DrawKochSnowflake draws a Koch snowflake.
-func (ppm *PPM) DrawKochSnowflake(n int, start Point, width int, color Pixel) {
-	// N is the number of iterations.
-	// Koch snowflake is a 3 times a Koch curve.
+	for _, point := range points {
+		if point.Y < minY {
+			minY = point.Y
+		}
+		if point.Y > maxY {
+			maxY = point.Y
+		}
+	}
+	xco := make([][]int, maxY-minY+1)
 
-	// Implement Koch snowflake using recursive calls to DrawKochCurve.
-	// ...
-}
+	for i := 0; i < len(points); i++ {
+		p1 := points[i]
+		p2 := points[(i+1)%len(points)]
 
-// DrawKochCurve is a helper function for drawing a Koch curve.
-func (ppm *PPM) DrawKochCurve(n int, p1, p2 Point, color Pixel) {
-	// Implement Koch curve using recursive calls.
-	// ...
+		var start, end Point
+		if p1.Y <= p2.Y {
+			start, end = p1, p2
+		} else {
+			start, end = p2, p1
+		}
+
+		slope := float64(end.X-start.X) / float64(end.Y-start.Y)
+
+		x := float64(start.X)
+
+		for y := start.Y; y <= end.Y; y++ {
+			index := y - minY
+			xco[index] = append(xco[index], int(x+0.5))
+			x += slope
+		}
+	}
+
+	// Loop through odd rows (starting from index 0) to draw lines between pairs of points.
+	for i := 0; i < len(xco); i += 2 {
+		// Draw lines between pairs of points for even rows.
+		for j := 0; j < len(xco[i])-1; j += 2 {
+			// Use the Even-Odd Fill Algorithm to draw lines between pairs of points.
+			// The algorithm ensures that the interior of the polygon is correctly filled.
+			// It determines whether a point is inside or outside the polygon by counting
+			// the number of intersections with polygon edges along the scanline.
+			ppm.DrawLine(Point{xco[i][j], i + minY},
+				Point{xco[i][j+1], i + minY}, color)
+		}
+
+		// If there's a next row, draw lines between pairs of points for odd rows.
+		if i+1 < len(xco) {
+			for j := 0; j < len(xco[i+1])-1; j += 1 {
+				// Use the Even-Odd Fill Algorithm to draw lines between pairs of points.
+				// Similar to the even rows, it ensures correct filling of the polygon.
+				ppm.DrawLine(Point{xco[i+1][j], i + minY + 1},
+					Point{xco[i+1][j+1], i + minY + 1}, color)
+			}
+		}
+	}
+
 }
